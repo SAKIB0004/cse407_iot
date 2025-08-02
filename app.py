@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
 import tinytuya
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
@@ -109,7 +110,7 @@ st_autorefresh(interval=60000, limit=None, key="refresh")
 st.set_page_config(page_title="Energy Monitor | Sakib", layout="wide")
 
 # Sidebar page selector
-page = st.sidebar.selectbox("📄 Select Page", ["Dashboard", "History"])
+page = st.sidebar.selectbox("📄 Select Page", ["Dashboard", "History", "Summary & Insights"])
 
 # Fetch data and status
 df, status = update_history_row()
@@ -123,13 +124,11 @@ if page == "Dashboard":
     with left_col:
         st.title("💡 Sakib - IoT Energy Monitoring Dashboard")
 
-    # Control buttons
     colA, colB = st.columns([1, 4])
     with colA:
         st.button("🔌 Turn ON", on_click=toggle_device, args=(True,))
         st.button("💡 Turn OFF", on_click=toggle_device, args=(False,))
 
-    # Metrics
     st.subheader("🔍 Real-Time Device Parameters")
     row1 = st.columns(4)
     row2 = st.columns(3)
@@ -164,7 +163,6 @@ if page == "Dashboard":
 
     st.success(f"✅ Device is {'ON' if power_on else 'OFF'}")
 
-    # Live Graph
     st.subheader("📊 Live Graph of Power Parameters")
     if not df.empty:
         fig, ax = plt.subplots(figsize=(10, 5))
@@ -181,7 +179,6 @@ if page == "Dashboard":
         plt.tight_layout()
         st.pyplot(fig)
 
-    # CSV Download
     with open(csv_path, "rb") as f:
         st.download_button(label="📥 Download CSV", data=f, file_name="energy_history.csv", mime="text/csv")
 
@@ -201,4 +198,25 @@ elif page == "History":
         plt.xticks(rotation=45)
         st.pyplot(fig)
 
-st.caption("👨‍💻 Dashboard by Sakib | Streamlit + Tuya")
+
+# Page: Summary & Insights
+elif page == "Summary & Insights":
+    st.title("📊 Summary & Insights")
+
+    st.subheader("📋 Statistical Summary")
+    numeric_df = df.select_dtypes(include='number')
+    st.dataframe(numeric_df.describe())
+
+    st.subheader("📈 Correlation Heatmap")
+    fig, ax = plt.subplots(figsize=(10, 6))
+    sns.heatmap(numeric_df.corr(), annot=True, cmap="coolwarm", ax=ax)
+    st.pyplot(fig)
+
+    st.subheader("💡 Key Insights")
+    st.markdown("""
+    - Voltage and power usage are moderately correlated.
+    - Power usage directly impacts both energy consumption and cost.
+    - Regular monitoring can help reduce unnecessary power usage.
+    """)
+
+st.caption("👨‍💻 Dashboard by Mahmudul Haque Sakib | Streamlit + Tuya + Insights")
