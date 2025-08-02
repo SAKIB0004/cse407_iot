@@ -12,7 +12,6 @@ DEVICE_ID = "bf1fb51a6032098478au4s"
 LOCAL_KEY = "ZD@.!(|l[$V|3K=F"
 LOCAL_IP = "192.168.68.107"
 VERSION = 3.5
-
 unit_cost_bdt = 6
 csv_path = "energy_history.csv"
 
@@ -29,52 +28,53 @@ if 'history' not in st.session_state:
 
 if 'on_time' not in st.session_state:
     st.session_state.on_time = None
-
 if 'duration_minutes' not in st.session_state:
     st.session_state.duration_minutes = 0
-
 if 'last_update_time' not in st.session_state:
     st.session_state.last_update_time = datetime.now()
-
 if 'accumulated_kwh' not in st.session_state:
     st.session_state.accumulated_kwh = 0.0
 
+# Cached device status for 60s
+@st.cache_data(ttl=60)
+def get_cached_status():
+    try:
+        return device.status()
+    except Exception as e:
+        return {"error": str(e)}
+
 # Device status getter
 def get_device_status():
-    try:
-        status = device.status()
-        dps = status.get('dps', {})
+    status = get_cached_status()
+    dps = status.get('dps', {})
 
-        power_on = dps.get('1', False)
-        power = dps.get('19', 0) / 10.0
-        voltage = dps.get('20', 0) / 10.0
-        current = dps.get('18', 0) / 1000.0
+    power_on = dps.get('1', False)
+    power = dps.get('19', 0) / 10.0
+    voltage = dps.get('20', 0) / 10.0
+    current = dps.get('18', 0) / 1000.0
 
-        current_time = datetime.now()
-        delta_time_hours = (current_time - st.session_state.last_update_time).total_seconds() / 3600.0
-        st.session_state.last_update_time = current_time
+    current_time = datetime.now()
+    delta_time_hours = (current_time - st.session_state.last_update_time).total_seconds() / 3600.0
+    st.session_state.last_update_time = current_time
 
-        incremental_kwh = (power / 1000.0) * delta_time_hours
-        st.session_state.accumulated_kwh += incremental_kwh
+    incremental_kwh = (power / 1000.0) * delta_time_hours
+    st.session_state.accumulated_kwh += incremental_kwh
 
-        current_ma = current * 1000.0
-        cost = st.session_state.accumulated_kwh * unit_cost_bdt
+    current_ma = current * 1000.0
+    cost = st.session_state.accumulated_kwh * unit_cost_bdt
 
-        if power_on:
-            if not st.session_state.on_time:
-                st.session_state.on_time = datetime.now()
-            else:
-                st.session_state.duration_minutes = int((datetime.now() - st.session_state.on_time).total_seconds() / 60)
+    if power_on:
+        if not st.session_state.on_time:
+            st.session_state.on_time = datetime.now()
         else:
-            st.session_state.on_time = None
-            st.session_state.duration_minutes = 0
+            st.session_state.duration_minutes = int((datetime.now() - st.session_state.on_time).total_seconds() / 60)
+    else:
+        st.session_state.on_time = None
+        st.session_state.duration_minutes = 0
 
-        return power_on, power, voltage, current_ma, st.session_state.accumulated_kwh, cost, st.session_state.duration_minutes
-    except Exception as e:
-        st.warning(f"Error: {e}")
-        return False, 0, 0, 0, 0, 0, 0
+    return power_on, power, voltage, current_ma, st.session_state.accumulated_kwh, cost, st.session_state.duration_minutes
 
-# Data update
+# History updater
 def update_history_row():
     now = datetime.now()
     status = get_device_status()
@@ -89,10 +89,13 @@ def update_history_row():
     }
     if len(st.session_state.history) == 0 or (now - pd.to_datetime(st.session_state.history[-1]['Time'])).total_seconds() >= 60:
         st.session_state.history.append(record)
-        df = pd.DataFrame(st.session_state.history)
-        df.to_csv(csv_path, index=False)
-    else:
-        df = pd.DataFrame(st.session_state.history)
+
+        # Save after every 5 entries
+        if len(st.session_state.history) % 5 == 0:
+            df = pd.DataFrame(st.session_state.history)
+            df.to_csv(csv_path, index=False)
+
+    df = pd.DataFrame(st.session_state.history)
     return df, status
 
 # Toggle plug
@@ -103,20 +106,18 @@ def toggle_device(state: bool):
     except Exception as e:
         st.error(f"Error toggling device: {e}")
 
-# Auto-refresh every 1 minute
-st_autorefresh(interval=60000, limit=None, key="refresh")
+# Refresh every 90 seconds
+st_autorefresh(interval=90000, limit=None, key="refresh")
 
 # Page config
 st.set_page_config(page_title="Energy Monitor | Sakib", layout="wide")
-
-# Sidebar page selector
 page = st.sidebar.selectbox("📄 Select Page", ["Dashboard", "History", "Summary & Insights"])
 
-# Fetch data and status
+# Fetch data
 df, status = update_history_row()
 power_on, power, voltage, current_ma, kwh, cost, duration = status
 
-# Page: Dashboard
+# ----- Dashboard -----
 if page == "Dashboard":
     left_col, right_col = st.columns([4, 1])
     with right_col:
@@ -164,7 +165,8 @@ if page == "Dashboard":
     st.success(f"✅ Device is {'ON' if power_on else 'OFF'}")
 
     st.subheader("📊 Live Graph of Power Parameters")
-    if not df.empty:
+    show_plot = st.checkbox("📉 Show Live Power Graph", value=False)
+    if show_plot and not df.empty:
         fig, ax = plt.subplots(figsize=(10, 5))
         ax.plot(df['Time'], df['Current (mA)'], label="Current (mA)", color="purple")
         ax.plot(df['Time'], df['Voltage (V)'], label="Voltage (V)", color="orange")
@@ -182,7 +184,7 @@ if page == "Dashboard":
     with open(csv_path, "rb") as f:
         st.download_button(label="📥 Download CSV", data=f, file_name="energy_history.csv", mime="text/csv")
 
-# Page: History
+# ----- History -----
 elif page == "History":
     st.title("📈 History Visualization")
     st.subheader("🕓 Parameter-wise 1-Minute Graphs")
@@ -198,8 +200,7 @@ elif page == "History":
         plt.xticks(rotation=45)
         st.pyplot(fig)
 
-
-# Page: Summary & Insights
+# ----- Summary & Insights -----
 elif page == "Summary & Insights":
     st.title("📊 Summary & Insights")
 
