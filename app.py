@@ -213,11 +213,5 @@ elif page == "Summary & Insights":
     sns.heatmap(numeric_df.corr(), annot=True, cmap="coolwarm", ax=ax)
     st.pyplot(fig)
 
-    st.subheader("💡 Key Insights")
-    st.markdown("""
-    - Voltage and power usage are moderately correlated.
-    - Power usage directly impacts both energy consumption and cost.
-    - Regular monitoring can help reduce unnecessary power usage.
-    """)
 
 st.caption("👨‍💻 Dashboard by Mahmudul Haque Sakib | Streamlit + Tuya + Insights")
